@@ -26,11 +26,35 @@ namespace Rsvfx
 
         [SerializeField] uint2 _resolution = math.uint2(640, 480);
         [SerializeField] uint _framerate = 30;
+        [Space]
+        [SerializeField] float _depthThreshold = 10;
+        [SerializeField, Range(0, 1)] float _brightness = 0;
+        [SerializeField, Range(0, 1)] float _saturation = 1;
+        [Space]
         [SerializeField] Transform _poseTransform = null;
         [SerializeField] RenderTexture _colorMap = null;
         [SerializeField] RenderTexture _positionMap = null;
 
         [SerializeField, HideInInspector] ComputeShader _compute = null;
+
+        #endregion
+
+        #region Public properties
+
+        public float depthThreshold {
+            get { return _depthThreshold; }
+            set { _depthThreshold = value; }
+        }
+
+        public float brightness {
+            get { return _brightness; }
+            set { _brightness = value; }
+        }
+
+        public float saturation {
+            get { return _saturation; }
+            set { _saturation = value; }
+        }
 
         #endregion
 
@@ -43,6 +67,7 @@ namespace Rsvfx
         PoseQueue _poseQueue = new PoseQueue();
 
         (VideoFrame color, Points point) _depthFrame;
+        (Intrinsics color, Intrinsics depth) _intrinsics;
         readonly object _depthFrameLock = new object();
 
         DepthConverter _converter;
@@ -83,6 +108,11 @@ namespace Rsvfx
                         {
                             _depthFrame.color?.Dispose();
                             _depthFrame.color = fs.ColorFrame;
+
+                            using (var prof = _depthFrame.color.
+                                   GetProfile<VideoStreamProfile>())
+                                _intrinsics.color = prof.GetIntrinsics();
+
                             pcBlock.MapTexture(_depthFrame.color);
                         }
 
@@ -90,10 +120,15 @@ namespace Rsvfx
                         using (var df = fs.DepthFrame)
                         {
                             var pc = pcBlock.Process(df).Cast<Points>();
+
                             lock (_depthFrameLock)
                             {
                                 _depthFrame.point?.Dispose();
                                 _depthFrame.point = pc;
+
+                                using (var prof = df.
+                                       GetProfile<VideoStreamProfile>())
+                                    _intrinsics.depth = prof.GetIntrinsics();
                             }
                         }
                     }
@@ -165,10 +200,15 @@ namespace Rsvfx
             {
                 if (_depthFrame.color == null) return;
                 if (_depthFrame.point == null) return;
-                _converter.LoadColorData(_depthFrame.color);
-                _converter.LoadPointData(_depthFrame.point);
+                _converter.LoadColorData(_depthFrame.color, _intrinsics.color);
+                _converter.LoadPointData(_depthFrame.point, _intrinsics.depth);
                 time = _depthFrame.color.Timestamp;
             }
+
+            // Update the converter options.
+            _converter.Brightness = _brightness;
+            _converter.Saturation = _saturation;
+            _converter.DepthThreshold = _depthThreshold;
 
             // Update the external attribute maps.
             _converter.UpdateAttributeMaps(_colorMap, _positionMap);

@@ -10,6 +10,14 @@ namespace Rsvfx
     // can be easily fed to a visual effect graph.
     sealed class DepthConverter : System.IDisposable
     {
+        #region Public properties
+
+        public float DepthThreshold { get; set; } = 10;
+        public float Brightness { get; set; } = 0;
+        public float Saturation { get; set; } = 1;
+
+        #endregion
+
         #region Public methods
 
         public DepthConverter(ComputeShader compute)
@@ -51,7 +59,8 @@ namespace Rsvfx
         }
 
         // Load color data (a video frame) into the internal buffer.
-        public void LoadColorData(RealSense.VideoFrame frame)
+        public void LoadColorData
+            (RealSense.VideoFrame frame, in RealSense.Intrinsics intrinsics)
         {
             if (frame == null) return;
             if (frame.Data == IntPtr.Zero) return;
@@ -69,11 +78,13 @@ namespace Rsvfx
 
             UnsafeUtility.SetUnmanagedData(_colorBuffer, frame.Data, size, 4);
 
+            _intrinsics.color = IntrinsicsToVector(intrinsics);
             _dimensions = math.int2(frame.Width, frame.Height);
         }
 
         // Load point data (a Points instance) into the internal buffer.
-        public void LoadPointData(RealSense.Points points)
+        public void LoadPointData
+            (RealSense.Points points, in RealSense.Intrinsics intrinsics)
         {
             if (points == null) return;
             if (points.VertexData == IntPtr.Zero) return;
@@ -105,6 +116,8 @@ namespace Rsvfx
 
             UnsafeUtility.SetUnmanagedData
                 (_remapBuffer, points.TextureData, countx2, sizeof(float));
+
+            _intrinsics.depth = IntrinsicsToVector(intrinsics);
         }
 
         // Update external attribute maps based on the internal buffers.
@@ -143,11 +156,18 @@ namespace Rsvfx
         RenderTexture _tempColorMap;
         RenderTexture _tempPositionMap;
 
+        (Vector4 color, Vector4 depth) _intrinsics;
+
         int2 _dimensions;
 
         #endregion
 
         #region Private methods
+
+        static Vector4 IntrinsicsToVector(RealSense.Intrinsics i)
+        {
+            return new Vector4(i.ppx, i.ppy, i.fx, i.fy);
+        }
 
         void BakeToTempMaps()
         {
@@ -188,6 +208,10 @@ namespace Rsvfx
             }
 
             _compute.SetInts("MapDimensions", _dimensions);
+            _compute.SetVector("ColorIntrinsics", _intrinsics.color);
+            _compute.SetVector("DepthIntrinsics", _intrinsics.depth);
+            _compute.SetFloat("DepthThreshold", DepthThreshold);
+            _compute.SetVector("ColorAdjust", Brightness, Saturation);
             _compute.SetBuffer(0, "ColorBuffer", _colorBuffer);
             _compute.SetBuffer(0, "PositionBuffer", _positionBuffer);
             _compute.SetBuffer(0, "RemapBuffer", _remapBuffer);

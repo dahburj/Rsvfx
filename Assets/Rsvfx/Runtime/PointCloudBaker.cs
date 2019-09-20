@@ -10,11 +10,18 @@ namespace Rsvfx
     {
         #region Editable attributes
 
+        [Space]
         [SerializeField] RsFrameProvider _colorSource = null;
         [SerializeField] RsFrameProvider _pointSource = null;
+
         [Space]
         [SerializeField] RenderTexture _colorMap = null;
         [SerializeField] RenderTexture _positionMap = null;
+
+        [Space]
+        [SerializeField] float _depthThreshold = 10;
+        [SerializeField, Range(0, 1)] float _brightness = 0;
+        [SerializeField, Range(0, 1)] float _saturation = 1;
 
         [SerializeField, HideInInspector] ComputeShader _compute = null;
 
@@ -53,12 +60,21 @@ namespace Rsvfx
             // Try dequeuing and load a color frame.
             VideoFrame cf;
             if (_frameQueue.color.PollForFrame(out cf))
-                using (cf) _converter.LoadColorData(cf);
+                using (cf)
+                    using (var prof = cf.GetProfile<VideoStreamProfile>())
+                        _converter.LoadColorData(cf, prof.GetIntrinsics());
 
             // Try dequeuing and load a point frame.
             Points pf;
             if (_frameQueue.point.PollForFrame(out pf))
-                using (pf) _converter.LoadPointData(pf);
+                using (pf)
+                    using (var prof = pf.GetProfile<VideoStreamProfile>())
+                        _converter.LoadPointData(pf, prof.GetIntrinsics());
+
+            // Update the converter options.
+            _converter.Brightness = _brightness;
+            _converter.Saturation = _saturation;
+            _converter.DepthThreshold = _depthThreshold;
 
             // Bake them.
             _converter.UpdateAttributeMaps(_colorMap, _positionMap);
